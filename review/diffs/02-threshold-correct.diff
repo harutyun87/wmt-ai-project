@@ -1,0 +1,91 @@
+diff --git a/src/bugdraft/cli.py b/src/bugdraft/cli.py
+index 5ce871a..a5e2e05 100644
+--- a/src/bugdraft/cli.py
++++ b/src/bugdraft/cli.py
+@@ -10,6 +10,7 @@ from pathlib import Path
+ 
+ from . import __version__
+ from .drafting import LLMDrafter
++from .duplicates import THRESHOLD
+ from .io_csv import InputError, load_bugs, load_run
+ from .pipeline import SUGGESTION_LABELS, analyze, summary_markdown
+ from .publish import build_items, publish_outbox
+@@ -44,7 +45,9 @@ def cmd_analyze(a: argparse.Namespace) -> int:
+         drafter = LLMDrafter(base, model, os.environ.get("LLM_API_KEY"))
+     run_id = a.run_id or run_path.stem.removeprefix("test-run-")
+     attachments_dir = Path(a.attachments_dir) if a.attachments_dir else run_path.parent
+-    result = analyze(cases, bugs, attachments_dir, run_id, drafter)
++    if not 0 < a.threshold <= 1:
++        raise InputError("--threshold должен быть в диапазоне (0; 1]")
++    result = analyze(cases, bugs, attachments_dir, run_id, drafter, a.threshold)
+     out = Path(a.out) / run_id
+     out.mkdir(parents=True, exist_ok=True)
+     _write_json(out / "proposals.json", result)
+@@ -103,6 +106,8 @@ def build_parser() -> argparse.ArgumentParser:
+     an.add_argument("--out", default="out", help="папка результатов (по умолчанию out/)")
+     an.add_argument("--run-id", help="идентификатор рана (по умолчанию из имени файла)")
+     an.add_argument("--drafter", choices=["template", "llm"], default="template")
++    an.add_argument("--threshold", type=float, default=THRESHOLD,
++                    help=f"порог сходства для дублей (по умолчанию {THRESHOLD})")
+     an.set_defaults(func=cmd_analyze)
+ 
+     de = sub.add_parser("decide", help="решение QA-инженера по кейсу")
+diff --git a/src/bugdraft/pipeline.py b/src/bugdraft/pipeline.py
+index 09e8657..569bca2 100644
+--- a/src/bugdraft/pipeline.py
++++ b/src/bugdraft/pipeline.py
+@@ -30,7 +30,8 @@ def read_logs(case: Case, attachments_dir: Path) -> str:
+     return "\n".join(parts)
+ 
+ 
+-def propose(case: Case, bugs: list[Bug], attachments_dir: Path, drafter: LLMDrafter | None = None) -> dict:
++def propose(case: Case, bugs: list[Bug], attachments_dir: Path, drafter: LLMDrafter | None = None,
++            threshold: float = THRESHOLD) -> dict:
+     proposal = {"case_id": case.case_id, "status": case.status, "suggestion": "", "reasons": [],
+                 "missing": [], "duplicate_candidates": [], "draft": None,
+                 "generator": TEMPLATE_GENERATOR, "generator_note": ""}
+@@ -56,18 +57,19 @@ def propose(case: Case, bugs: list[Bug], attachments_dir: Path, drafter: LLMDraf
+         draft, generator, note = template_draft(case, masked_log), TEMPLATE_GENERATOR, ""
+     proposal.update(draft=draft, generator=generator, generator_note=note)
+ 
+-    if candidates and candidates[0]["score"] >= THRESHOLD:
++    if candidates and candidates[0]["score"] >= threshold:
+         top = candidates[0]
+         proposal.update(suggestion="duplicate",
+-                        reasons=[f"похож на {top['bug_id']} (сходство {top['score']:.2f} ≥ {THRESHOLD})"])
++                        reasons=[f"похож на {top['bug_id']} (сходство {top['score']:.2f} ≥ {threshold})"])
+     else:
+         proposal.update(suggestion="new_bug", reasons=["похожих открытых багов не найдено"])
+     return proposal
+ 
+ 
+ def analyze(cases: list[Case], bugs: list[Bug], attachments_dir: Path, run_id: str,
+-            drafter: LLMDrafter | None = None) -> dict:
+-    proposals = [propose(c, bugs, attachments_dir, drafter) for c in cases if c.status in FAILED_STATUSES]
++            drafter: LLMDrafter | None = None, threshold: float = THRESHOLD) -> dict:
++    proposals = [propose(c, bugs, attachments_dir, drafter, threshold)
++                 for c in cases if c.status in FAILED_STATUSES]
+     return {"run_id": run_id,
+             "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
+             "total_cases": len(cases),
+diff --git a/tests/test_flow.py b/tests/test_flow.py
+index 7ef0e9d..fbbf9ed 100644
+--- a/tests/test_flow.py
++++ b/tests/test_flow.py
+@@ -185,6 +185,16 @@ class TestCliAndPublish(unittest.TestCase):
+         self.assertEqual(dec["TC-1042"]["action"], "approve")
+         self.assertEqual(dec["TC-1042"]["replaces"]["action"], "reject")
+ 
++    def test_threshold_option(self):
++        code, _, _ = run_cli("analyze", "--run", str(RUN_CSV), "--bugs", str(BUGS_CSV), "--out", self.tmp.name,
++                             "--threshold", "0.9")
++        self.assertEqual(code, 0)
++        props = json.loads((self.run_dir / "proposals.json").read_text(encoding="utf-8"))["proposals"]
++        self.assertEqual(next(p for p in props if p["case_id"] == "TC-1107")["suggestion"], "new_bug")
++        code, _, err = run_cli("analyze", "--run", str(RUN_CSV), "--bugs", str(BUGS_CSV), "--out", self.tmp.name,
++                               "--threshold", "0")
++        self.assertEqual(code, 2)
++
+     def test_llm_without_env(self):
+         import os
+         env = {k: os.environ.pop(k) for k in ["LLM_BASE_URL", "LLM_MODEL"] if k in os.environ}

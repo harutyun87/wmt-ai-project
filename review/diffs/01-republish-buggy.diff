@@ -1,0 +1,47 @@
+diff --git a/src/bugdraft/pipeline.py b/src/bugdraft/pipeline.py
+index 09e8657..ea5cb50 100644
+--- a/src/bugdraft/pipeline.py
++++ b/src/bugdraft/pipeline.py
+@@ -26,7 +26,7 @@ def read_logs(case: Case, attachments_dir: Path) -> str:
+     for rel in case.attachments:
+         p = attachments_dir / rel
+         if p.suffix.lower() in {".txt", ".log", ".json"} and p.is_file():
+-            parts.append(p.read_text(encoding="utf-8", errors="replace"))
++            parts.append(p.read_text())
+     return "\n".join(parts)
+ 
+ 
+@@ -41,7 +41,8 @@ def propose(case: Case, bugs: list[Bug], attachments_dir: Path, drafter: LLMDraf
+                         reasons=[f"не хватает данных: {', '.join(missing)}"])
+         return proposal
+ 
+-    masked_log = mask(read_logs(case, attachments_dir))
++    raw_log = read_logs(case, attachments_dir)
++    masked_log = mask(raw_log)
+ 
+     env = environment_reason(case, masked_log)
+     if env:
+@@ -51,7 +52,7 @@ def propose(case: Case, bugs: list[Bug], attachments_dir: Path, drafter: LLMDraf
+     candidates = find_candidates(case, bugs)
+     proposal["duplicate_candidates"] = candidates
+     if drafter is not None:
+-        draft, generator, note = drafter.draft(case, masked_log)
++        draft, generator, note = drafter.draft(case, raw_log)  # LLM лучше понимает полный лог
+     else:
+         draft, generator, note = template_draft(case, masked_log), TEMPLATE_GENERATOR, ""
+     proposal.update(draft=draft, generator=generator, generator_note=note)
+diff --git a/src/bugdraft/publish.py b/src/bugdraft/publish.py
+index 76d7f46..8742a6d 100644
+--- a/src/bugdraft/publish.py
++++ b/src/bugdraft/publish.py
+@@ -68,9 +68,7 @@ def publish_outbox(items: list[dict], outbox: Path) -> tuple[list[str], list[str
+     written, skipped = [], []
+     for item in items:
+         path = outbox / f"{item['key']}.json"
+-        if path.exists():
+-            skipped.append(path.name)
+-            continue
++        # перезаписываем, чтобы изменённое решение попало в outbox
+         body = {k: v for k, v in item.items() if k != "key"}
+         tmp = path.with_suffix(".tmp")
+         tmp.write_text(json.dumps(body, ensure_ascii=False, indent=2), encoding="utf-8")

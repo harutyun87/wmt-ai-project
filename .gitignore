@@ -10,6 +10,8 @@ secrets/
 data/real/
 
 # логи и артефакты запуска
+out/
+*.tmp
 logs/
 *.log
 __pycache__/
