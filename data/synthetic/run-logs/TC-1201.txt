@@ -1,0 +1,2 @@
+2026-11-16T12:30:10.004Z ERROR [payments] GET https://pay-sandbox.example.test/health -> connect timeout 5000 ms
+2026-11-16T12:30:10.005Z WARN  [checkout] SBP provider unavailable, payment page not rendered

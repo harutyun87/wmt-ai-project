@@ -1,0 +1,5 @@
+bug_id,title,status,severity,component,created,linked_cases
+BUG-298,Неверная сортировка отзывов по дате,Open,Minor,catalog,2026-11-02,TC-0950
+BUG-311,Итог корзины не обновляется после удаления товара без перезагрузки,Open,Major,cart,2026-11-09,TC-1101
+BUG-317,Опечатка в письме о восстановлении пароля,In Progress,Trivial,notifications,2026-11-11,
+BUG-320,Кнопка «Оформить» дублирует заказ при двойном клике,Open,Critical,checkout,2026-11-13,TC-1190
