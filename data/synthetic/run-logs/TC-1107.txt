@@ -1,0 +1,2 @@
+2026-11-16T11:02:45.120Z INFO  [web] DELETE /api/cart/items/item-demo-12 -> 204 (31 ms)
+2026-11-16T11:02:45.122Z WARN  [web-ui] cart.total not refreshed: stale cache key cart-demo-9020
